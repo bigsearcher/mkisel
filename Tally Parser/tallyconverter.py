@@ -204,56 +204,27 @@ class TallyParserGUI:
     def _convert_xls_to_xlsx(self, xls_file):
         """Convert .xls file to .xlsx format"""
         try:
-            import pandas as pd
-            
+            from utils.file_converter import convert_xls_to_xlsx
+
             self.status_label.config(text="Converting .xls to .xlsx...")
             self.root.update()
-            
-            # Read .xls file using pandas with xlrd engine
-            try:
-                # Try with xlrd engine (for .xls files)
-                all_sheets = pd.read_excel(xls_file, sheet_name=None, engine='xlrd')
-            except ImportError:
-                # If xlrd is not installed, try with openpyxl (might work for some files)
-                try:
-                    all_sheets = pd.read_excel(xls_file, sheet_name=None, engine='openpyxl')
-                except Exception:
-                    raise ImportError("xlrd package is required to read .xls files. Install it with: pip install xlrd")
-            except Exception as e:
-                # Other errors reading the file
-                raise Exception(f"Failed to read .xls file: {str(e)}")
-            
-            # Create .xlsx file in same directory as original
-            xls_path = Path(xls_file)
-            xlsx_file = xls_path.parent / f"{xls_path.stem}_converted.xlsx"
-            
-            # Delete existing converted file if it exists
-            if xlsx_file.exists():
-                try:
-                    xlsx_file.unlink()
-                except Exception:
-                    pass
-            
-            # Write to .xlsx using openpyxl engine
-            with pd.ExcelWriter(str(xlsx_file), engine='openpyxl') as writer:
-                for sheet_name, df in all_sheets.items():
-                    # Truncate sheet name if too long (Excel limit is 31 characters)
-                    sheet_name_truncated = sheet_name[:31] if len(sheet_name) > 31 else sheet_name
-                    df.to_excel(writer, sheet_name=sheet_name_truncated, index=False)
-            
+
+            # Convert using utility function
+            xlsx_file = convert_xls_to_xlsx(xls_file)
+
             self.status_label.config(text=f"Converted: {xlsx_file.name}")
             self.root.update()
-            
+
             messagebox.showinfo(
                 "File Converted",
                 f"Old .xls file has been converted to .xlsx format.\n\n"
-                f"Original: {xls_path.name}\n"
+                f"Original: {Path(xls_file).name}\n"
                 f"Converted: {xlsx_file.name}\n\n"
                 f"You can now proceed with parsing."
             )
-            
+
             return str(xlsx_file)
-            
+
         except ImportError as e:
             messagebox.showerror(
                 "Missing Package",
@@ -1026,33 +997,17 @@ class ModeSelectionDialog:
         try:
             input_path = Path(self.file_path)
             
-            # If file is .xls, convert to .xlsx first using pandas + xlrd
+            # If file is .xls, convert to .xlsx first
             if input_path.suffix.lower() == '.xls':
-                import pandas as pd
                 try:
-                    # Read .xls file using pandas with xlrd engine
-                    all_sheets = pd.read_excel(self.file_path, sheet_name=None, engine='xlrd')
-                    
-                    # Create .xlsx file path
-                    xlsx_file = input_path.parent / f"{input_path.stem}_converted.xlsx"
-                    
-                    # Delete existing converted file if it exists
-                    if xlsx_file.exists():
-                        try:
-                            xlsx_file.unlink()
-                        except Exception:
-                            pass
-                    
-                    # Write to .xlsx using openpyxl engine
-                    with pd.ExcelWriter(str(xlsx_file), engine='openpyxl') as writer:
-                        for sheet_name, df in all_sheets.items():
-                            # Truncate sheet name if too long (Excel limit is 31 characters)
-                            sheet_name_truncated = sheet_name[:31] if len(sheet_name) > 31 else sheet_name
-                            df.to_excel(writer, sheet_name=sheet_name_truncated, index=False)
-                    
+                    from utils.file_converter import convert_xls_to_xlsx
+
+                    # Convert using utility function
+                    xlsx_file = convert_xls_to_xlsx(self.file_path)
+
                     # Use converted file for cleaning
                     input_path = xlsx_file
-                    
+
                 except ImportError as e:
                     messagebox.showerror(
                         "Missing Package",

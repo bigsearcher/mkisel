@@ -115,34 +115,18 @@ class ManualColumnSelector:
         try:
             file_path = Path(self.file_path)
             
-            # If file is .xls, convert to .xlsx first using pandas + xlrd
+            # If file is .xls, convert to .xlsx first
             if file_path.suffix.lower() == '.xls':
-                import pandas as pd
                 try:
-                    # Read .xls file using pandas with xlrd engine
-                    all_sheets = pd.read_excel(self.file_path, sheet_name=None, engine='xlrd')
-                    
-                    # Create .xlsx file path
-                    xlsx_file = file_path.parent / f"{file_path.stem}_converted.xlsx"
-                    
-                    # Delete existing converted file if it exists
-                    if xlsx_file.exists():
-                        try:
-                            xlsx_file.unlink()
-                        except Exception:
-                            pass
-                    
-                    # Write to .xlsx using openpyxl engine
-                    with pd.ExcelWriter(str(xlsx_file), engine='openpyxl') as writer:
-                        for sheet_name, df in all_sheets.items():
-                            # Truncate sheet name if too long (Excel limit is 31 characters)
-                            sheet_name_truncated = sheet_name[:31] if len(sheet_name) > 31 else sheet_name
-                            df.to_excel(writer, sheet_name=sheet_name_truncated, index=False)
-                    
+                    from utils.file_converter import convert_xls_to_xlsx
+
+                    # Convert using utility function
+                    xlsx_file = convert_xls_to_xlsx(self.file_path)
+
                     # Use converted file
                     self.file_path = str(xlsx_file)
                     file_path = xlsx_file
-                    
+
                 except ImportError as e:
                     messagebox.showerror(
                         "Missing Package",
@@ -924,35 +908,19 @@ class ManualColumnSelector:
             # Delete existing cleaned and output files
             input_path = Path(self.file_path)
             
-            # If file is .xls, convert to .xlsx first using pandas + xlrd
+            # If file is .xls, convert to .xlsx first
             file_to_clean = self.file_path
             if input_path.suffix.lower() == '.xls':
-                import pandas as pd
                 try:
-                    # Read .xls file using pandas with xlrd engine
-                    all_sheets = pd.read_excel(self.file_path, sheet_name=None, engine='xlrd')
-                    
-                    # Create .xlsx file path
-                    xlsx_file = input_path.parent / f"{input_path.stem}_converted.xlsx"
-                    
-                    # Delete existing converted file if it exists
-                    if xlsx_file.exists():
-                        try:
-                            xlsx_file.unlink()
-                        except Exception:
-                            pass
-                    
-                    # Write to .xlsx using openpyxl engine
-                    with pd.ExcelWriter(str(xlsx_file), engine='openpyxl') as writer:
-                        for sheet_name, df in all_sheets.items():
-                            # Truncate sheet name if too long (Excel limit is 31 characters)
-                            sheet_name_truncated = sheet_name[:31] if len(sheet_name) > 31 else sheet_name
-                            df.to_excel(writer, sheet_name=sheet_name_truncated, index=False)
-                    
+                    from utils.file_converter import convert_xls_to_xlsx
+
+                    # Convert using utility function
+                    xlsx_file = convert_xls_to_xlsx(self.file_path)
+
                     # Use converted file for cleaning
                     file_to_clean = str(xlsx_file)
                     input_path = xlsx_file
-                    
+
                 except ImportError as e:
                     messagebox.showerror(
                         "Missing Package",
