@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.spec
+build/
+dist/
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test results
+test_results/
+*.tly
+*_converted.xlsx
+*_cleaned.xlsx
+*_output.xlsx
+*_calculated_temp.xlsx
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+
+# Certificates (don't commit private keys)
+*.pfx
+*.p12
+
+# Sample files (optional - uncomment if you don't want to commit sample files)
+# Sample/
