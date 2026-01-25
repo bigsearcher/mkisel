@@ -56,7 +56,7 @@ class ManualColumnSelector:
             self._load_excel_data()
             
             if not self.worksheet:
-                self.dialog.destroy()
+                self._cleanup_and_close()
                 return
 
             # Auto-detect header row
@@ -106,7 +106,7 @@ class ManualColumnSelector:
         except Exception as e:
             # If loading fails, show error and close dialog
             if hasattr(self, 'dialog'):
-                self.dialog.destroy()
+                self._cleanup_and_close()
             messagebox.showerror("Error", f"Failed to initialize manual column selector:\n{str(e)}")
             return
 
@@ -235,10 +235,11 @@ class ManualColumnSelector:
                         self._temp_file_to_cleanup.unlink()
                 except Exception:
                     pass
-            
+
+
             messagebox.showerror("Error", f"Failed to load Excel file:\n{str(e)}")
             if hasattr(self, 'dialog'):
-                self.dialog.destroy()
+                self._cleanup_and_close()
 
     def _auto_detect_header_row(self):
         """Auto-detect header row by searching for keywords DEPTH, EFFECTIVE, COMMENT"""
@@ -365,7 +366,7 @@ class ManualColumnSelector:
         self.cancel_button = ttk.Button(
             button_container,
             text="Cancel",
-            command=self.dialog.destroy,
+            command=self._cleanup_and_close,
             width=30,
             style='Large.TButton'
         )
