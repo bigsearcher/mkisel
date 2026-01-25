@@ -196,6 +196,23 @@ def calculate_formulas(input_file, output_file=None):
                 wb.Close(SaveChanges=False)
             except:
                 pass
+            wb = None
+
+        # Try to quit Excel if it's open
+        if excel:
+            try:
+                excel.ScreenUpdating = True
+                excel.EnableEvents = True
+                excel.Quit()
+                del excel
+            except:
+                pass
+            excel = None
+
+        # Force garbage collection to release COM objects
+        import gc
+        gc.collect()
+
         raise
 
     finally:
