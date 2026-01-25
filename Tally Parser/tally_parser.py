@@ -272,6 +272,15 @@ class TallyParser:
 
         return data
 
+    def close(self):
+        """Close the workbook to free resources"""
+        if self.workbook:
+            try:
+                self.workbook.close()
+            except Exception:
+                pass
+            self.workbook = None
+
 
 def parse_tally_file(file_path):
     """
@@ -284,8 +293,11 @@ def parse_tally_file(file_path):
         List of dictionaries with tally data
     """
     parser = TallyParser(file_path)
-    parser.load()
-    return parser.parse()
+    try:
+        parser.load()
+        return parser.parse()
+    finally:
+        parser.close()
 
 
 if __name__ == "__main__":

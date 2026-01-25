@@ -44,7 +44,10 @@ class ManualColumnSelector:
         self.dialog.title("Manual Column Selection")
         self.dialog.transient(parent)
         self.dialog.grab_set()
-        
+
+        # Bind window close event to cleanup
+        self.dialog.protocol("WM_DELETE_WINDOW", self._cleanup_and_close)
+
         # Hide dialog initially until data is loaded
         self.dialog.withdraw()
         
@@ -1531,6 +1534,30 @@ class ManualColumnSelector:
             import traceback
             traceback.print_exc()
             return
+
+    def close(self):
+        """Close workbook and clean up temporary files"""
+        # Close workbook
+        if self.workbook:
+            try:
+                self.workbook.close()
+            except Exception:
+                pass
+            self.workbook = None
+
+        # Clean up temporary file if it exists
+        if hasattr(self, '_temp_file_to_cleanup') and self._temp_file_to_cleanup:
+            try:
+                if self._temp_file_to_cleanup.exists():
+                    self._temp_file_to_cleanup.unlink()
+            except Exception:
+                pass
+
+    def _cleanup_and_close(self):
+        """Cleanup resources and close dialog"""
+        self.close()
+        if hasattr(self, 'dialog') and self.dialog.winfo_exists():
+            self.dialog.destroy()
 
 
 if __name__ == "__main__":

@@ -71,6 +71,10 @@ def clean_excel(input_file, output_file):
     print(f"Loading {input_file}...")
 
     # Try to load with openpyxl first
+    wb_data = None
+    wb_format = None
+    wb_new = None
+
     try:
         # Load with data_only=True to get calculated values
         wb_data = load_workbook(input_file, data_only=True)
@@ -86,9 +90,10 @@ def clean_excel(input_file, output_file):
         # Use pandas as fallback
         return clean_excel_pandas(input_file, output_file)
 
-    # Create new workbook
-    wb_new = Workbook()
-    wb_new.remove(wb_new.active)  # Remove default sheet
+    try:
+        # Create new workbook
+        wb_new = Workbook()
+        wb_new.remove(wb_new.active)  # Remove default sheet
 
     # Process each sheet
     for sheet_name in wb_data.sheetnames:
@@ -166,14 +171,34 @@ def clean_excel(input_file, output_file):
 
         # Note: We don't copy merged cells as we've already unmerged them
 
-    # Check if we have any sheets
-    if len(wb_new.sheetnames) == 0:
-        raise ValueError("No tally sheets found in the file. Make sure the file has sheets with 'Tally' in the name (but not 'Deck').")
+        # Check if we have any sheets
+        if len(wb_new.sheetnames) == 0:
+            raise ValueError("No tally sheets found in the file. Make sure the file has sheets with 'Tally' in the name (but not 'Deck').")
 
-    # Save cleaned file
-    print(f"Saving to {output_file}...")
-    wb_new.save(output_file)
-    print(f"Done! File saved: {output_file}")
+        # Save cleaned file
+        print(f"Saving to {output_file}...")
+        wb_new.save(output_file)
+        print(f"Done! File saved: {output_file}")
+
+    finally:
+        # Close all workbooks to free resources
+        if wb_data:
+            try:
+                wb_data.close()
+            except Exception:
+                pass
+
+        if wb_format:
+            try:
+                wb_format.close()
+            except Exception:
+                pass
+
+        if wb_new:
+            try:
+                wb_new.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

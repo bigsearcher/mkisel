@@ -28,6 +28,8 @@ wheels/
 build/
 dist/
 *.exe
+!cosign.exe  # Keep cosign.exe if needed, but usually exclude
+cosign-windows-amd64.exe
 
 # IDE
 .vscode/

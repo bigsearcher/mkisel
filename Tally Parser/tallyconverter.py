@@ -535,44 +535,54 @@ class TallyParserGUI:
             self.root.update()
 
             from openpyxl import load_workbook
-            
-            wb = load_workbook(output_file, data_only=True)
-            ws = wb.active
-            
-            # Find column indices for "Item #" and "Depth"
-            header_row = 1
-            item_col = None
-            depth_col = None
-            
-            for col_idx, cell in enumerate(ws[header_row], 1):
-                cell_value = str(cell.value or "").strip()
-                if "item" in cell_value.lower() and "#" in cell_value:
-                    item_col = col_idx
-                elif "depth" in cell_value.lower():
-                    depth_col = col_idx
-            
-            if item_col is None or depth_col is None:
-                messagebox.showerror("Error", "Could not find 'Item #' and 'Depth' columns in the output file")
-                return
 
-            # Extract data for TLY
-            rows_data = []
-            for row_idx in range(header_row + 1, ws.max_row + 1):
-                item_value = ws.cell(row=row_idx, column=item_col).value
-                depth_value = ws.cell(row=row_idx, column=depth_col).value
-                
-                if item_value is None and depth_value is None:
-                    continue
-                
-                item_str = str(item_value).strip() if item_value is not None else ""
-                depth_str = str(depth_value).strip() if depth_value is not None else ""
-                
-                if depth_str:
-                    rows_data.append((item_str, depth_str))
+            wb = None
+            try:
+                wb = load_workbook(output_file, data_only=True)
+                ws = wb.active
 
-            if not rows_data:
-                messagebox.showwarning("Warning", "No data found for TLY file")
-                return
+                # Find column indices for "Item #" and "Depth"
+                header_row = 1
+                item_col = None
+                depth_col = None
+
+                for col_idx, cell in enumerate(ws[header_row], 1):
+                    cell_value = str(cell.value or "").strip()
+                    if "item" in cell_value.lower() and "#" in cell_value:
+                        item_col = col_idx
+                    elif "depth" in cell_value.lower():
+                        depth_col = col_idx
+
+                if item_col is None or depth_col is None:
+                    messagebox.showerror("Error", "Could not find 'Item #' and 'Depth' columns in the output file")
+                    return
+
+                # Extract data for TLY
+                rows_data = []
+                for row_idx in range(header_row + 1, ws.max_row + 1):
+                    item_value = ws.cell(row=row_idx, column=item_col).value
+                    depth_value = ws.cell(row=row_idx, column=depth_col).value
+
+                    if item_value is None and depth_value is None:
+                        continue
+
+                    item_str = str(item_value).strip() if item_value is not None else ""
+                    depth_str = str(depth_value).strip() if depth_value is not None else ""
+
+                    if depth_str:
+                        rows_data.append((item_str, depth_str))
+
+                if not rows_data:
+                    messagebox.showwarning("Warning", "No data found for TLY file")
+                    return
+
+            finally:
+                # Close workbook to free resources
+                if wb:
+                    try:
+                        wb.close()
+                    except Exception:
+                        pass
 
             # Generate TLY file
             tly_file = str(tly_file_path)
@@ -647,49 +657,59 @@ class TallyParserGUI:
             self.root.update()
 
             from openpyxl import load_workbook
-            
-            wb = load_workbook(input_xlsx, data_only=True)
-            ws = wb.active
-            
-            # Find column indices for "Item #" and "Depth"
-            header_row = 1
-            item_col = None
-            depth_col = None
-            
-            for col_idx, cell in enumerate(ws[header_row], 1):
-                cell_value = str(cell.value or "").strip()
-                if "item" in cell_value.lower() and "#" in cell_value:
-                    item_col = col_idx
-                elif "depth" in cell_value.lower():
-                    depth_col = col_idx
-            
-            if item_col is None or depth_col is None:
-                messagebox.showerror("Error", "Could not find 'Item #' and 'Depth' columns in the Excel file")
-                return
 
-            # Extract data
-            self.status_label.config(text="Extracting data...")
-            self.root.update()
+            wb = None
+            try:
+                wb = load_workbook(input_xlsx, data_only=True)
+                ws = wb.active
 
-            rows_data = []
-            for row_idx in range(header_row + 1, ws.max_row + 1):
-                item_value = ws.cell(row=row_idx, column=item_col).value
-                depth_value = ws.cell(row=row_idx, column=depth_col).value
-                
-                # Skip empty rows
-                if item_value is None and depth_value is None:
-                    continue
-                
-                # Format values
-                item_str = str(item_value).strip() if item_value is not None else ""
-                depth_str = str(depth_value).strip() if depth_value is not None else ""
-                
-                if depth_str:  # Only add rows with depth
-                    rows_data.append((item_str, depth_str))
+                # Find column indices for "Item #" and "Depth"
+                header_row = 1
+                item_col = None
+                depth_col = None
 
-            if not rows_data:
-                messagebox.showwarning("Warning", "No data found in the Excel file")
-                return
+                for col_idx, cell in enumerate(ws[header_row], 1):
+                    cell_value = str(cell.value or "").strip()
+                    if "item" in cell_value.lower() and "#" in cell_value:
+                        item_col = col_idx
+                    elif "depth" in cell_value.lower():
+                        depth_col = col_idx
+
+                if item_col is None or depth_col is None:
+                    messagebox.showerror("Error", "Could not find 'Item #' and 'Depth' columns in the Excel file")
+                    return
+
+                # Extract data
+                self.status_label.config(text="Extracting data...")
+                self.root.update()
+
+                rows_data = []
+                for row_idx in range(header_row + 1, ws.max_row + 1):
+                    item_value = ws.cell(row=row_idx, column=item_col).value
+                    depth_value = ws.cell(row=row_idx, column=depth_col).value
+
+                    # Skip empty rows
+                    if item_value is None and depth_value is None:
+                        continue
+
+                    # Format values
+                    item_str = str(item_value).strip() if item_value is not None else ""
+                    depth_str = str(depth_value).strip() if depth_value is not None else ""
+
+                    if depth_str:  # Only add rows with depth
+                        rows_data.append((item_str, depth_str))
+
+                if not rows_data:
+                    messagebox.showwarning("Warning", "No data found in the Excel file")
+                    return
+
+            finally:
+                # Close workbook to free resources
+                if wb:
+                    try:
+                        wb.close()
+                    except Exception:
+                        pass
 
             # Generate TLY file
             self.status_label.config(text="Generating TLY file...")
@@ -698,7 +718,7 @@ class TallyParserGUI:
             with open(tly_file, 'w', encoding='utf-8') as f:
                 # Write header
                 f.write("Run Number\tDepth of Top of Joint\n")
-                
+
                 # Write data rows
                 for item, depth in rows_data:
                     f.write(f"{item}\t{depth}\n")
