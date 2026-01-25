@@ -7,6 +7,22 @@ import sys
 from pathlib import Path
 
 
+# Excel Constants
+EXCEL_FORMAT_XLSX = 51  # xlOpenXMLWorkbook - Excel 2007-2019 format (no macros)
+EXCEL_FORMAT_XLS = 56   # xlExcel8 - Excel 97-2003 format
+EXCEL_SECURITY_DISABLE_MACROS = 2  # msoAutomationSecurityForceDisable
+EXCEL_UPDATE_LINKS_NONE = 0  # Don't update external links
+EXCEL_CORRUPT_LOAD_NORMAL = 0  # xlNormalLoad
+EXCEL_CONFLICT_LOCAL_SESSION = 2  # xlLocalSessionChanges
+EXCEL_VIEW_NORMAL = 1  # xlNormalView
+EXCEL_LINK_TYPE_EXCEL = 1  # xlLinkTypeExcelLinks
+
+# Timeout settings
+FILE_WRITE_TIMEOUT_SECONDS = 10
+FILE_WRITE_CHECK_INTERVAL = 0.1
+CALC_WAIT_SECONDS = 0.3
+
+
 def calculate_formulas(input_file, output_file=None):
     """
     Open Excel file in Microsoft Excel, calculate formulas, and save
@@ -54,11 +70,11 @@ def calculate_formulas(input_file, output_file=None):
         
         # Disable macros globally before opening any file
         try:
-            excel.AutomationSecurity = 2  # msoAutomationSecurityForceDisable - disables all macros
+            excel.AutomationSecurity = EXCEL_SECURITY_DISABLE_MACROS
         except Exception:
             # Fallback: try to set macro security via registry-like approach
             try:
-                excel.Application.AutomationSecurity = 2
+                excel.Application.AutomationSecurity = EXCEL_SECURITY_DISABLE_MACROS
             except Exception:
                 pass  # Some Excel versions may not support this
 
@@ -69,17 +85,16 @@ def calculate_formulas(input_file, output_file=None):
             # xlOpenXMLWorkbookMacroEnabled (52) files will open but macros disabled
             wb = excel.Workbooks.Open(
                 str(input_path),
-                UpdateLinks=0,  # Don't update external links
+                UpdateLinks=EXCEL_UPDATE_LINKS_NONE,
                 ReadOnly=False,
-                CorruptLoad=0,  # xlNormalLoad
+                CorruptLoad=EXCEL_CORRUPT_LOAD_NORMAL,
                 Notify=False,  # Don't notify about macros (effectively disables them)
                 AddToMru=False  # Don't add to recent files
             )
             
             # Explicitly disable macros if workbook has them
             try:
-                # Set macro security to disable all macros
-                excel.AutomationSecurity = 2  # msoAutomationSecurityForceDisable
+                excel.AutomationSecurity = EXCEL_SECURITY_DISABLE_MACROS
             except Exception:
                 pass  # Some Excel versions may not support this
                 
@@ -95,7 +110,7 @@ def calculate_formulas(input_file, output_file=None):
                 for link in links:
                     try:
                         # Break the link and convert to values
-                        wb.BreakLink(link, 1)  # xlLinkTypeExcelLinks = 1
+                        wb.BreakLink(link, EXCEL_LINK_TYPE_EXCEL)
                     except Exception as e:
                         print(f"  Warning: Could not break link {link}: {e}")
         except Exception as e:
@@ -106,7 +121,7 @@ def calculate_formulas(input_file, output_file=None):
         for ws in wb.Worksheets:
             try:
                 ws.Activate()
-                excel.ActiveWindow.View = 1  # xlNormalView = 1
+                excel.ActiveWindow.View = EXCEL_VIEW_NORMAL
             except Exception:
                 pass
 
@@ -123,7 +138,7 @@ def calculate_formulas(input_file, output_file=None):
 
         # Wait for calculations to complete
         import time
-        time.sleep(0.3)  # Give Excel a moment to start calculations
+        time.sleep(CALC_WAIT_SECONDS)  # Give Excel a moment to start calculations
 
         # Save - use SaveAs with explicit format to ensure clean file
         print(f"Saving to {output_file.name}...")
@@ -151,44 +166,42 @@ def calculate_formulas(input_file, output_file=None):
                 elif input_ext == '.xlsm':
                     print(f"  Note: Converting .xlsm to .xlsx (macros removed)")
             
-            # Save as xlsx (Excel 2007-2019 format) - use xlOpenXMLWorkbook (51)
+            # Save as xlsx (Excel 2007-2019 format)
             wb.SaveAs(
-                str(output_file), 
-                FileFormat=51,  # xlOpenXMLWorkbook (no macros)
-                ConflictResolution=2,  # xlLocalSessionChanges
+                str(output_file),
+                FileFormat=EXCEL_FORMAT_XLSX,
+                ConflictResolution=EXCEL_CONFLICT_LOCAL_SESSION,
                 CreateBackup=False
             )
         elif file_ext == '.xls':
             # If output explicitly requested as .xls, save in old format
             # (but this shouldn't happen in normal workflow)
             wb.SaveAs(
-                str(output_file), 
-                FileFormat=56,  # xlExcel8
-                ConflictResolution=2,
+                str(output_file),
+                FileFormat=EXCEL_FORMAT_XLS,
+                ConflictResolution=EXCEL_CONFLICT_LOCAL_SESSION,
                 CreateBackup=False
             )
         else:
             # Default to xlsx (no macros)
             wb.SaveAs(
-                str(output_file), 
-                FileFormat=51,  # xlOpenXMLWorkbook
-                ConflictResolution=2,
+                str(output_file),
+                FileFormat=EXCEL_FORMAT_XLSX,
+                ConflictResolution=EXCEL_CONFLICT_LOCAL_SESSION,
                 CreateBackup=False
             )
 
 
         # Wait for file to be written with timeout
-        timeout = 10  # seconds
         elapsed = 0
-        check_interval = 0.1
 
-        while not output_file.exists() and elapsed < timeout:
-            time.sleep(check_interval)
-            elapsed += check_interval
+        while not output_file.exists() and elapsed < FILE_WRITE_TIMEOUT_SECONDS:
+            time.sleep(FILE_WRITE_CHECK_INTERVAL)
+            elapsed += FILE_WRITE_CHECK_INTERVAL
 
         # Verify file was created
         if not output_file.exists():
-            raise RuntimeError(f"Failed to save file after {timeout}s: {output_file}")
+            raise RuntimeError(f"Failed to save file after {FILE_WRITE_TIMEOUT_SECONDS}s: {output_file}")
 
         # Close workbook without saving (already saved with SaveAs)
         wb.Close(SaveChanges=False)
