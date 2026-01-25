@@ -26,10 +26,14 @@ class TallyParserGUI:
         self.root.title("Tally Parser")
         self.root.geometry("500x400")
 
+        # Bind window close event to cleanup
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+
         # Current file
         self.current_file = None
         self.cleaned_file = None
         self.converted_file = None  # Track converted .xls files for cleanup
+        self.temp_files = []  # List of temporary files to clean up
 
         # Setup UI
         self._setup_ui()
@@ -116,6 +120,29 @@ class TallyParserGUI:
             anchor=tk.W
         )
         self.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(20, 0))
+
+    def _on_closing(self):
+        """Cleanup temporary files and close application"""
+        # Delete converted file if it exists
+        if self.converted_file:
+            try:
+                converted_path = Path(self.converted_file)
+                if converted_path.exists():
+                    converted_path.unlink()
+            except Exception:
+                pass
+
+        # Delete other temporary files
+        for temp_file in self.temp_files:
+            try:
+                temp_path = Path(temp_file)
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                pass
+
+        # Close application
+        self.root.destroy()
 
     def _open_file_in_excel(self, file_path):
         """Open file in Excel (cross-platform)"""
