@@ -119,10 +119,11 @@ def calculate_formulas(input_file, output_file=None):
                 ws.Calculate()
             except Exception:
                 pass
-        
-        # Wait a bit for calculations to complete
+
+
+        # Wait for calculations to complete
         import time
-        time.sleep(0.5)
+        time.sleep(0.3)  # Give Excel a moment to start calculations
 
         # Save - use SaveAs with explicit format to ensure clean file
         print(f"Saving to {output_file.name}...")
@@ -174,13 +175,20 @@ def calculate_formulas(input_file, output_file=None):
                 ConflictResolution=2,
                 CreateBackup=False
             )
-        
-        # Wait for file to be written
-        time.sleep(0.5)
-        
+
+
+        # Wait for file to be written with timeout
+        timeout = 10  # seconds
+        elapsed = 0
+        check_interval = 0.1
+
+        while not output_file.exists() and elapsed < timeout:
+            time.sleep(check_interval)
+            elapsed += check_interval
+
         # Verify file was created
         if not output_file.exists():
-            raise RuntimeError(f"Failed to save file: {output_file}")
+            raise RuntimeError(f"Failed to save file after {timeout}s: {output_file}")
 
         # Close workbook without saving (already saved with SaveAs)
         wb.Close(SaveChanges=False)
