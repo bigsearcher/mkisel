@@ -86,6 +86,21 @@ def clean_excel(input_file, output_file):
         print("Trying with pandas (formatting will be lost)...")
         use_openpyxl = False
 
+        # Clean up any partially loaded workbooks before falling back to pandas
+        if wb_data:
+            try:
+                wb_data.close()
+            except Exception:
+                pass
+            wb_data = None
+
+        if wb_format:
+            try:
+                wb_format.close()
+            except Exception:
+                pass
+            wb_format = None
+
     if not use_openpyxl:
         # Use pandas as fallback
         return clean_excel_pandas(input_file, output_file)
