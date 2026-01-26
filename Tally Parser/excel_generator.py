@@ -11,6 +11,9 @@ class ExcelGenerator:
 
     # Light blue fill for lengths < 30
     LIGHT_BLUE_FILL = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+    
+    # Light red fill for depth differences > 40
+    LIGHT_RED_FILL = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
 
     # Header style
     HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -77,6 +80,9 @@ class ExcelGenerator:
 
     def _write_data(self, data):
         """Write data rows"""
+        # Store depth cells to check differences later
+        depth_cells = []
+        
         for row_idx, row_data in enumerate(data, 2):  # Start from row 2 (after header)
             # Item #
             item_num_cell = self.worksheet.cell(row=row_idx, column=1, value=row_data['item_num'])
@@ -85,6 +91,12 @@ class ExcelGenerator:
 
             # Length
             length_val = row_data['length']
+            # Round to 2 decimal places if numeric
+            if length_val != '' and length_val is not None:
+                try:
+                    length_val = round(float(length_val), 2)
+                except (ValueError, TypeError):
+                    pass  # Keep original value if not numeric
             length_cell = self.worksheet.cell(row=row_idx, column=2, value=length_val)
             length_cell.border = self.THIN_BORDER
             length_cell.alignment = Alignment(horizontal='right')
@@ -99,15 +111,51 @@ class ExcelGenerator:
                     pass  # Skip if can't convert to float
 
             # Depth
-            depth_cell = self.worksheet.cell(row=row_idx, column=3, value=row_data['depth'])
+            depth_val = row_data['depth']
+            # Round to 2 decimal places if numeric
+            if depth_val != '' and depth_val is not None:
+                try:
+                    depth_val = round(float(depth_val), 2)
+                except (ValueError, TypeError):
+                    pass  # Keep original value if not numeric
+            depth_cell = self.worksheet.cell(row=row_idx, column=3, value=depth_val)
             depth_cell.border = self.THIN_BORDER
             depth_cell.alignment = Alignment(horizontal='right')
             depth_cell.number_format = '0.00'  # Format as decimal with 2 places
+            
+            # Store depth cell and value for difference checking
+            depth_cells.append((depth_cell, depth_val))
 
             # Comment
             comment_cell = self.worksheet.cell(row=row_idx, column=4, value=row_data['comment'])
             comment_cell.border = self.THIN_BORDER
             comment_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        
+        # Check depth differences and apply light red fill
+        self._highlight_large_depth_differences(depth_cells)
+    
+    def _highlight_large_depth_differences(self, depth_cells):
+        """Highlight depth cells where difference with adjacent row is > 40"""
+        for i in range(1, len(depth_cells)):
+            prev_cell, prev_depth = depth_cells[i - 1]
+            curr_cell, curr_depth = depth_cells[i]
+            
+            # Check if both depths are numeric
+            try:
+                prev_depth_float = float(prev_depth) if prev_depth != '' and prev_depth is not None else None
+                curr_depth_float = float(curr_depth) if curr_depth != '' and curr_depth is not None else None
+                
+                if prev_depth_float is not None and curr_depth_float is not None:
+                    # Calculate absolute difference
+                    diff = abs(curr_depth_float - prev_depth_float)
+                    
+                    # If difference > 40, highlight both cells
+                    if diff > 40:
+                        prev_cell.fill = self.LIGHT_RED_FILL
+                        curr_cell.fill = self.LIGHT_RED_FILL
+            except (ValueError, TypeError):
+                # Skip if depths are not numeric
+                pass
 
     def _format_worksheet(self):
         """Format worksheet columns and settings"""

@@ -419,15 +419,15 @@ class TallyParserGUI:
                     # Check if it's a header detection error
                     if "Could not find header row" in error_msg or "required columns" in error_msg:
                         detailed_msg = (
-                            f"Не удалось автоматически найти заголовки таблицы.\n\n"
-                            f"Возможные причины:\n"
-                            f"• Заголовки находятся не в первых 30 строках\n"
-                            f"• Названия колонок отличаются от ожидаемых\n"
-                            f"• Структура таблицы нестандартная\n\n"
-                            f"Рекомендация: Используйте режим 'Choose Column Header'\n"
-                            f"для ручного выбора заголовков колонок."
+                            f"Could not automatically find table headers.\n\n"
+                            f"Possible reasons:\n"
+                            f"• Headers are not in the first 30 rows\n"
+                            f"• Column names differ from expected\n"
+                            f"• Table structure is non-standard\n\n"
+                            f"Recommendation: Use 'Choose Column Header' mode\n"
+                            f"for manual selection of column headers."
                         )
-                        messagebox.showerror("Ошибка поиска заголовков", detailed_msg)
+                        messagebox.showerror("Header Detection Error", detailed_msg)
                     else:
                         messagebox.showerror("Error", f"Failed to generate output:\n{error_msg}")
                     self.status_label.config(text="Error occurred")
@@ -565,7 +565,15 @@ class TallyParserGUI:
                         continue
 
                     item_str = str(item_value).strip() if item_value is not None else ""
-                    depth_str = str(depth_value).strip() if depth_value is not None else ""
+                    # Round depth to 2 decimal places if numeric
+                    if depth_value is not None:
+                        try:
+                            depth_rounded = round(float(depth_value), 2)
+                            depth_str = str(depth_rounded)
+                        except (ValueError, TypeError):
+                            depth_str = str(depth_value).strip()
+                    else:
+                        depth_str = ""
 
                     if depth_str:
                         rows_data.append((item_str, depth_str))
@@ -613,15 +621,15 @@ class TallyParserGUI:
             error_msg = str(e)
             if "Could not find header row" in error_msg or "required columns" in error_msg:
                 detailed_msg = (
-                    f"Не удалось автоматически найти заголовки таблицы.\n\n"
-                    f"Возможные причины:\n"
-                    f"• Заголовки находятся не в первых 50 строках\n"
-                    f"• Названия колонок отличаются от ожидаемых\n"
-                    f"• Структура таблицы нестандартная\n\n"
-                    f"Рекомендация: Используйте кнопку '2. Generate Clean Tally'\n"
-                    f"с режимом 'Choose Column Header' для ручного выбора."
+                    f"Could not automatically find table headers.\n\n"
+                    f"Possible reasons:\n"
+                    f"• Headers are not in the first 50 rows\n"
+                    f"• Column names differ from expected\n"
+                    f"• Table structure is non-standard\n\n"
+                    f"Recommendation: Use button '2. Generate Clean Tally'\n"
+                    f"with 'Choose Column Header' mode for manual selection."
                 )
-                messagebox.showerror("Ошибка поиска заголовков", detailed_msg)
+                messagebox.showerror("Header Detection Error", detailed_msg)
             else:
                 messagebox.showerror("Error", f"Auto processing failed:\n{error_msg}")
             self.status_label.config(text="Error occurred")
@@ -865,6 +873,29 @@ class TallyParserGUI:
    output .xlsx file, even if it was created earlier.
 
 
+4. AUTO BUTTON (Output + TLY)
+
+   The "Auto (Output + TLY)" button performs all processing steps 
+   automatically in one operation:
+
+   • Automatically generates cleaned file using Auto mode
+   • Automatically parses data and generates output .xlsx file
+   • Automatically generates .tly file from the output
+   • Opens both files (Excel and Notepad) when complete
+
+   This is the fastest way to process a file if you need both the 
+   output Excel file and the TLY file. All numeric values are 
+   automatically rounded to 2 decimal places.
+
+   Use this button when:
+   • You want to process a file quickly without manual steps
+   • The file structure is standard (Auto mode will work)
+   • You need both output.xlsx and .tly files
+
+   If Auto mode fails to detect headers, use button 2 with 
+   "Choose Column Header" mode instead.
+
+
 IMPORTANT NOTES
 
    • Before generation, existing _cleaned.xlsx and _output.xlsx files 
@@ -892,11 +923,18 @@ STATUS BAR
 
 WORKFLOW
 
+   Option 1 - Step by step:
    1. Open a file (button 1)
    2. Generate Clean Tally (button 2) - select mode (Auto/Manual)
    3. If needed, generate TLY file (button 3)
 
+   Option 2 - Automatic (recommended):
+   1. Open a file (button 1)
+   2. Click "Auto (Output + TLY)" button
+   3. Wait for processing to complete
+
    All files are saved in the same folder as the source file.
+   All numeric values are rounded to 2 decimal places.
 """
         
         text_widget.insert(tk.END, readme_text)

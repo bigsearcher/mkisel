@@ -86,7 +86,15 @@ def generate_tly_from_output(output_xlsx, tly_file=None):
             
             # Format values
             item_str = str(item_value).strip() if item_value is not None else ""
-            depth_str = str(depth_value).strip() if depth_value is not None else ""
+            # Round depth to 2 decimal places if numeric
+            if depth_value is not None:
+                try:
+                    depth_rounded = round(float(depth_value), 2)
+                    depth_str = str(depth_rounded)
+                except (ValueError, TypeError):
+                    depth_str = str(depth_value).strip()
+            else:
+                depth_str = ""
             
             if depth_str:  # Only add rows with depth
                 rows_data.append((item_str, depth_str))

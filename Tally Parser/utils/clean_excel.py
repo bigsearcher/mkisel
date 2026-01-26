@@ -110,81 +110,81 @@ def clean_excel(input_file, output_file):
         wb_new = Workbook()
         wb_new.remove(wb_new.active)  # Remove default sheet
 
-    # Process each sheet
-    for sheet_name in wb_data.sheetnames:
-        # Filter: keep only sheets with "Tally" but not "Deck"
-        has_tally = 'Tally' in sheet_name or 'tally' in sheet_name
-        has_deck = 'Deck' in sheet_name or 'deck' in sheet_name
+        # Process each sheet
+        for sheet_name in wb_data.sheetnames:
+            # Filter: keep only sheets with "Tally" but not "Deck"
+            has_tally = 'Tally' in sheet_name or 'tally' in sheet_name
+            has_deck = 'Deck' in sheet_name or 'deck' in sheet_name
 
-        if not (has_tally and not has_deck):
-            print(f"Skipping sheet: {sheet_name} (not a tally sheet)")
-            continue
-        print(f"Processing sheet: {sheet_name}")
+            if not (has_tally and not has_deck):
+                print(f"Skipping sheet: {sheet_name} (not a tally sheet)")
+                continue
+            print(f"Processing sheet: {sheet_name}")
 
-        ws_data = wb_data[sheet_name]
-        ws_format = wb_format[sheet_name]
-        ws_new = wb_new.create_sheet(title=sheet_name)
+            ws_data = wb_data[sheet_name]
+            ws_format = wb_format[sheet_name]
+            ws_new = wb_new.create_sheet(title=sheet_name)
 
-        # First, collect merged cell ranges and their values
-        # Only fill the TOP-LEFT cell of merged range, leave others empty
-        merged_cells_map = {}
-        skip_cells = set()
-        for merged_range in ws_format.merged_cells.ranges:
-            # Get the top-left cell value
-            min_row = merged_range.min_row
-            min_col = merged_range.min_col
-            top_left_value = ws_data.cell(row=min_row, column=min_col).value
+            # First, collect merged cell ranges and their values
+            # Only fill the TOP-LEFT cell of merged range, leave others empty
+            merged_cells_map = {}
+            skip_cells = set()
+            for merged_range in ws_format.merged_cells.ranges:
+                # Get the top-left cell value
+                min_row = merged_range.min_row
+                min_col = merged_range.min_col
+                top_left_value = ws_data.cell(row=min_row, column=min_col).value
 
-            # Store value only for top-left cell
-            merged_cells_map[(min_row, min_col)] = top_left_value
+                # Store value only for top-left cell
+                merged_cells_map[(min_row, min_col)] = top_left_value
 
-            # Mark other cells in the range as empty
-            for row in range(merged_range.min_row, merged_range.max_row + 1):
-                for col in range(merged_range.min_col, merged_range.max_col + 1):
-                    if row != min_row or col != min_col:
-                        skip_cells.add((row, col))
+                # Mark other cells in the range as empty
+                for row in range(merged_range.min_row, merged_range.max_row + 1):
+                    for col in range(merged_range.min_col, merged_range.max_col + 1):
+                        if row != min_row or col != min_col:
+                            skip_cells.add((row, col))
 
-        # Copy values and formatting
-        for row_idx, row in enumerate(ws_data.iter_rows(), 1):
-            for col_idx, cell in enumerate(row, 1):
-                # Skip cells that were part of merged range (except top-left)
-                if (row_idx, col_idx) in skip_cells:
-                    value = None
-                # Get value from merged cells map or original cell
-                elif (row_idx, col_idx) in merged_cells_map:
-                    value = merged_cells_map[(row_idx, col_idx)]
-                else:
-                    value = cell.value
+            # Copy values and formatting
+            for row_idx, row in enumerate(ws_data.iter_rows(), 1):
+                for col_idx, cell in enumerate(row, 1):
+                    # Skip cells that were part of merged range (except top-left)
+                    if (row_idx, col_idx) in skip_cells:
+                        value = None
+                    # Get value from merged cells map or original cell
+                    elif (row_idx, col_idx) in merged_cells_map:
+                        value = merged_cells_map[(row_idx, col_idx)]
+                    else:
+                        value = cell.value
 
-                # Get formatting from original
-                orig_cell = ws_format.cell(row=row_idx, column=col_idx)
+                    # Get formatting from original
+                    orig_cell = ws_format.cell(row=row_idx, column=col_idx)
 
-                # Set value in new workbook
-                new_cell = ws_new.cell(row=row_idx, column=col_idx, value=value)
+                    # Set value in new workbook
+                    new_cell = ws_new.cell(row=row_idx, column=col_idx, value=value)
 
-                # Copy formatting
-                if orig_cell.has_style:
-                    try:
-                        new_cell.font = copy(orig_cell.font)
-                        new_cell.border = copy(orig_cell.border)
-                        new_cell.fill = copy(orig_cell.fill)
-                        new_cell.number_format = orig_cell.number_format
-                        new_cell.protection = copy(orig_cell.protection)
-                        new_cell.alignment = copy(orig_cell.alignment)
-                    except Exception as e:
-                        pass  # Skip if formatting copy fails
+                    # Copy formatting
+                    if orig_cell.has_style:
+                        try:
+                            new_cell.font = copy(orig_cell.font)
+                            new_cell.border = copy(orig_cell.border)
+                            new_cell.fill = copy(orig_cell.fill)
+                            new_cell.number_format = orig_cell.number_format
+                            new_cell.protection = copy(orig_cell.protection)
+                            new_cell.alignment = copy(orig_cell.alignment)
+                        except Exception as e:
+                            pass  # Skip if formatting copy fails
 
-        # Copy column widths
-        for col in ws_format.column_dimensions:
-            if col in ws_format.column_dimensions:
-                ws_new.column_dimensions[col].width = ws_format.column_dimensions[col].width
+            # Copy column widths
+            for col in ws_format.column_dimensions:
+                if col in ws_format.column_dimensions:
+                    ws_new.column_dimensions[col].width = ws_format.column_dimensions[col].width
 
-        # Copy row heights
-        for row in ws_format.row_dimensions:
-            if row in ws_format.row_dimensions:
-                ws_new.row_dimensions[row].height = ws_format.row_dimensions[row].height
+            # Copy row heights
+            for row in ws_format.row_dimensions:
+                if row in ws_format.row_dimensions:
+                    ws_new.row_dimensions[row].height = ws_format.row_dimensions[row].height
 
-        # Note: We don't copy merged cells as we've already unmerged them
+            # Note: We don't copy merged cells as we've already unmerged them
 
         # Check if we have any sheets
         if len(wb_new.sheetnames) == 0:
@@ -195,6 +195,11 @@ def clean_excel(input_file, output_file):
         wb_new.save(output_file)
         print(f"Done! File saved: {output_file}")
 
+    except Exception as e:
+        # If error occurs, try pandas fallback
+        print(f"Error during processing: {e}")
+        print("Falling back to pandas method...")
+        return clean_excel_pandas(input_file, output_file)
     finally:
         # Close all workbooks to free resources
         if wb_data:
