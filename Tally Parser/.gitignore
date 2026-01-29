@@ -24,9 +24,9 @@ wheels/
 *.egg
 
 # PyInstaller
-*.spec
 build/
 dist/
+installer_output/
 *.exe
 !cosign.exe  # Keep cosign.exe if needed, but usually exclude
 cosign-windows-amd64.exe

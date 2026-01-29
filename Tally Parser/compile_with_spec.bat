@@ -11,7 +11,7 @@ python -c "import PyInstaller" 2>nul
 if errorlevel 1 (
     echo PyInstaller is not installed!
     echo Installing PyInstaller...
-    pip install pyinstaller
+    python -m pip install pyinstaller
     if errorlevel 1 (
         echo Failed to install PyInstaller!
         pause
@@ -39,8 +39,8 @@ if errorlevel 1 (
 echo Compiling using TallyConverter.spec...
 echo.
 
-REM Compile using spec file
-pyinstaller TallyConverter.spec
+REM Compile using spec file (python -m to avoid Device Guard blocking pyinstaller.exe)
+python -m PyInstaller TallyConverter.spec
 
 if errorlevel 1 (
     echo.
@@ -62,50 +62,7 @@ if not exist "dist\TallyConverter.exe" (
     exit /b 1
 )
 
-REM Sign the executable
-echo Signing executable...
-echo.
-
-REM Check if signtool is available
-where signtool >nul 2>&1
-if errorlevel 1 (
-    echo Warning: signtool.exe not found in PATH.
-    echo Skipping code signing.
-    echo.
-    echo To sign manually, use:
-    echo   signtool sign /n "mkisel" /fd sha256 /td sha256 /tr http://timestamp.digicert.com "dist\TallyConverter.exe"
-    echo.
-    goto :skip_signing
-)
-
-REM Check if certificate exists, if not create it automatically
-powershell -Command "Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*CN=mkisel*' -or $_.FriendlyName -like '*mkisel*' }" >nul 2>&1
-if errorlevel 1 (
-    echo Certificate not found. Creating self-signed certificate...
-    echo.
-    powershell -Command "New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=mkisel' -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature -FriendlyName 'mkisel Code Signing'" >nul 2>&1
-    if errorlevel 1 (
-        echo Warning: Failed to create certificate automatically.
-        echo Skipping code signing.
-        echo.
-        goto :skip_signing
-    )
-    echo Certificate created successfully!
-    echo.
-)
-
-REM Sign with certificate
-echo Signing with certificate "mkisel"...
-signtool sign /n "mkisel" /fd sha256 /td sha256 /tr http://timestamp.digicert.com "dist\TallyConverter.exe" 2>nul
-if errorlevel 1 (
-    echo Warning: Code signing failed.
-    echo.
-) else (
-    echo Code signing completed successfully!
-    echo.
-)
-
-:skip_signing
+call "%~dp0sign_exe.bat" "dist\TallyConverter.exe"
 echo ========================================
 echo Build completed!
 echo ========================================

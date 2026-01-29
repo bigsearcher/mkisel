@@ -1,8 +1,8 @@
 """
-Tally Parser - Extract data from well completion tally sheets
+Tally Converter - Extract data from well completion tally sheets
 """
 from openpyxl import load_workbook
-import re
+from utils.clean_excel import select_sheet_with_dialog
 
 
 class TallyParser:
@@ -15,14 +15,18 @@ class TallyParser:
         'Coupling', 'COUPLING', 'Element', 'ELEMENT'
     ]
 
-    def __init__(self, file_path):
+    def __init__(self, file_path, column_mapping=None, parent_window=None):
         """
         Initialize parser with Excel file path
 
         Args:
             file_path: Path to cleaned Excel file
+            column_mapping: Optional dict with manual column mapping
+            parent_window: Parent Tk window for dialogs
         """
         self.file_path = file_path
+        self.column_mapping = column_mapping
+        self.parent_window = parent_window
         self.workbook = None
         self.worksheet = None
         self.header_row = None
@@ -31,31 +35,73 @@ class TallyParser:
     def load(self):
         """Load the Excel file and find the tally sheet"""
         print(f"Loading {self.file_path}...")
-        self.workbook = load_workbook(self.file_path, data_only=True)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.workbook = load_workbook(self.file_path, data_only=True)
 
-        # Find sheet with "Tally" but not "Deck", or use first sheet
-        tally_sheet = None
-        for sheet_name in self.workbook.sheetnames:
-            has_tally = 'Tally' in sheet_name or 'tally' in sheet_name or 'TALLY' in sheet_name
-            has_deck = 'Deck' in sheet_name or 'deck' in sheet_name or 'DECK' in sheet_name
-
-            if has_tally and not has_deck:
-                tally_sheet = sheet_name
-                break
-
-        # If no tally sheet found, try using first sheet
+        # Use select_sheet_with_dialog to find the tally sheet
+        # It will show a dialog if 0 or more than 1 matching sheets are found
+        tally_sheet = select_sheet_with_dialog(self.workbook.sheetnames, parent_window=self.parent_window, file_path=self.file_path)
+        
         if not tally_sheet:
-            if len(self.workbook.sheetnames) > 0:
-                tally_sheet = self.workbook.sheetnames[0]
-                print(f"Warning: No 'Tally' sheet found, using first sheet: {tally_sheet}")
-            else:
-                raise ValueError("No sheets found in workbook")
+            raise ValueError("No sheet selected")
 
         print(f"Using sheet: {tally_sheet}")
         self.worksheet = self.workbook[tally_sheet]
 
         # Find header row
-        self._find_headers()
+        if self.column_mapping:
+            print("Using manual column mapping...")
+            self._apply_column_mapping()
+        else:
+            self._find_headers()
+
+    def _apply_column_mapping(self):
+        """Apply manual column mapping"""
+        if not self.column_mapping:
+            return
+
+        # Get header row
+        header_row_idx = self.column_mapping.get('header_row')
+        if not header_row_idx:
+            raise ValueError("Manual mapping missing header_row")
+
+        # Map indices from mapping
+        # Note: manual_column_selector returns 0-based indices for columns
+        # TallyParser usually works with 0-based indices now (since I check usage in parse())
+        # Let's verify usage in parse(). iterating values = [cell.value for cell in row]
+        # values[idx] -> so 0-based is correct.
+        
+        self.column_indices = {}
+        if 'depth' in self.column_mapping:
+            self.column_indices['depth'] = self.column_mapping['depth']
+        if 'effective_length' in self.column_mapping:
+            self.column_indices['effective_length'] = self.column_mapping['effective_length']
+        if 'item_number' in self.column_mapping and self.column_mapping['item_number'] is not None:
+             self.column_indices['joint_number'] = self.column_mapping['item_number']
+        if 'comments' in self.column_mapping and self.column_mapping['comments'] is not None:
+             self.column_indices['comments'] = self.column_mapping['comments']
+        
+        # Set header row
+        # In manual mode, we assume data starts immediately after the selected header row
+        # UNLESS the row after is also a header.
+        # But for simplicity and to support "one or 2 rows", we sets header_row = selected_row.
+        # parse() starts at self.header_row + 1.
+        
+        # Check if the row after header might be a second header row (contains units etc)
+        # We can do this by checking if the 'depth' column at header_row+1 is numeric.
+        self.header_row = header_row_idx
+        
+        # NOTE: parse() uses: data_start_row = self.header_row + 1
+        # If user selected Row 1 as header. Data starts Row 2.
+        # If headers are Row 1 and Row 2. User selected Row 1. Data starts Row 2.
+        # If Row 2 is "m" or "ft", then Row 2 will be skipped by parse() loop because:
+        # try: float(depth) -> fails.
+        # So setting header_row to the selected row works for both cases!
+        
+        print(f"Applied manual mapping: {self.column_indices}")
+        print(f"Header row: {self.header_row} (Data starts at {self.header_row + 1})")
 
     def _find_headers(self):
         """Find the header row and column indices"""
@@ -282,17 +328,19 @@ class TallyParser:
             self.workbook = None
 
 
-def parse_tally_file(file_path):
+def parse_tally_file(file_path, column_mapping=None, parent_window=None):
     """
     Convenience function to parse a tally file
 
     Args:
         file_path: Path to cleaned Excel file
+        column_mapping: Optional dict with manual column mapping
+        parent_window: Parent Tk window for dialogs
 
     Returns:
         List of dictionaries with tally data
     """
-    parser = TallyParser(file_path)
+    parser = TallyParser(file_path, column_mapping, parent_window)
     try:
         parser.load()
         return parser.parse()

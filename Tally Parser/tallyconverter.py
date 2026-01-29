@@ -3,28 +3,32 @@
 """
 Tally Converter - Graphical interface for processing tally files
 """
+import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import subprocess
 import platform
 from pathlib import Path
-import tempfile
 
-# Import our modules
-from utils.clean_excel import clean_excel
-from tally_parser import parse_tally_file
-from excel_generator import generate_excel
-from manual_column_selector import ManualColumnSelector
+# No ctypes/DPI here when frozen — can hang on some PCs before any output.
+# Heavy modules (openpyxl, pandas) are imported only when needed to keep startup RAM low.
 
 
-class TallyParserGUI:
-    """Main GUI application for Tally Parser"""
+def _get_centered_geometry():
+    """Fixed position; no ctypes when frozen to avoid hang on some PCs."""
+    return "500x400+80+80"
+
+
+class TallyConverterGUI:
+    """Main GUI application for Tally Converter"""
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Tally Parser")
-        self.root.geometry("500x400")
+        self.root.title("Tally Converter")
+        # Centered or fixed position so window is never off-screen (exe on integrated graphics)
+        self.root.geometry(_get_centered_geometry())
+        self.root.minsize(400, 300)
 
         # Bind window close event to cleanup
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -38,6 +42,39 @@ class TallyParserGUI:
         # Setup UI
         self._setup_ui()
 
+        # Force window visible on some systems (integrated graphics). Safe no-op if anything fails.
+        try:
+            self.root.update_idletasks()
+            self.root.deiconify()
+            self.root.state("normal")
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.update()
+            self.root.attributes("-topmost", False)
+            self.root.focus_force()
+        except Exception:
+            pass
+
+        # When running as exe: repeatedly force window visible (fixes "no window" on some PCs)
+        if getattr(sys, "frozen", False):
+            for ms in (0, 100, 300, 800):
+                self.root.after(ms, self._force_window_visible)
+
+    def _force_window_visible(self):
+        """When running as exe: reposition (center) and bring window to front."""
+        try:
+            self.root.geometry(_get_centered_geometry())
+            self.root.deiconify()
+            self.root.state("normal")
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.update_idletasks()
+            self.root.update()
+            self.root.attributes("-topmost", False)
+            self.root.focus_force()
+        except Exception:
+            pass
+
     def _setup_ui(self):
         """Setup the user interface"""
         # Main frame
@@ -47,7 +84,7 @@ class TallyParserGUI:
         # Title
         title_label = ttk.Label(
             main_frame,
-            text="Tally Parser",
+            text="Tally Converter",
             font=('Arial', 16, 'bold')
         )
         title_label.pack(pady=(0, 20))
@@ -76,7 +113,7 @@ class TallyParserGUI:
         # Button 2: Generate Clean Tally
         self.clean_button = ttk.Button(
             button_frame,
-            text="2. Generate Clean Tally",
+            text="2. Generate Tally Manually",
             command=self.generate_clean_tally,
             state=tk.DISABLED,
             width=30
@@ -313,6 +350,98 @@ class TallyParserGUI:
             else:
                 self.status_label.config(text=f"Loaded: {original_name}")
 
+            # Automatically trigger processing
+            self.root.after(100, self.auto_process)
+
+    def _attempt_auto_process(self, input_path):
+        """
+        Attempt to clean and process a file automatically.
+        Returns: (success, result_tuple_or_none)
+        """
+        try:
+            # Output path
+            output_path = input_path.parent / f"{input_path.stem}_cleaned.xlsx"
+
+            # Clean the file
+            try:
+                clean_excel(str(input_path), str(output_path), parent_window=self.root)
+                
+                # Verify that cleaned file was created
+                if not output_path.exists():
+                    raise FileNotFoundError(f"Cleaned file was not created: {output_path}")
+                
+                return True, ('auto', str(output_path), None)
+            except Exception as e:
+                # If cleaning failed, try fallback: calculate formulas in Excel and retry
+                # Fallback logic... for now let's reuse the simple fallback pattern or just fail to manual
+                # Given strict instruction to just "Auto First", extensive fallback might be better here
+                # replicating fallback logic from ModeSelectionDialog.use_auto_mode:
+                
+                print(f"Auto clean failed: {e}. Trying fallback...")
+                
+                # Create temporary file for Excel calculation
+                temp_calculated = input_path.parent / f"{input_path.stem}_calculated_temp.xlsx"
+                
+                # Calculate formulas using Excel COM
+                from utils.calculate_formulas import calculate_formulas
+                
+                # Show progress message
+                self.status_label.config(text="Opening file in Excel (Fallback)...")
+                self.root.update()
+                
+                # Calculate formulas - this will open Excel
+                calculate_formulas(str(input_path), str(temp_calculated))
+                
+                if not temp_calculated.exists():
+                     raise FileNotFoundError(f"Calculated file was not created: {temp_calculated}")
+
+                self.status_label.config(text="Processing calculated file...")
+                self.root.update()
+                
+                # Try cleaning again with calculated file
+                try:
+                    clean_excel(str(temp_calculated), str(output_path), parent_window=self.root)
+                except Exception:
+                    from utils.clean_excel import clean_excel_pandas
+                    clean_excel_pandas(str(temp_calculated), str(output_path), parent_window=self.root)
+                
+                if not output_path.exists():
+                    raise FileNotFoundError(f"Cleaned file was not created: {output_path}")
+                
+                 # Clean up temporary file
+                if temp_calculated.exists():
+                    try:
+                        temp_calculated.unlink()
+                    except Exception:
+                        pass
+                
+                return True, ('auto', str(output_path), None)
+
+        except Exception as e:
+            # Auto mode failed
+            return False, e
+
+    def _run_manual_mode(self, input_path):
+        """Run manual column selector"""
+        try:
+            from manual_column_selector import ManualColumnSelector
+            selector = ManualColumnSelector(self.root, str(input_path))
+            # The dialog is modal (wait_window called inside if setup correctly or we call it here)
+            # ManualColumnSelector uses grab_set, but we need to wait for it.
+            # actually ManualColumnSelector shows itself. we need to wait for its window.
+            self.root.wait_window(selector.dialog)
+
+            if selector.result:
+                if len(selector.result) == 3:
+                     return selector.result
+                else:
+                     mode, cleaned_file = selector.result
+                     return (mode, cleaned_file, None)
+            return None
+        except Exception as e:
+            messagebox.showerror("Error", f"Manual mode failed:\n{str(e)}")
+            return None
+
     def generate_clean_tally(self):
         """Generate clean tally - show Auto/Choose dialog, then automatically generate output"""
         if not self.current_file:
@@ -347,91 +476,106 @@ class TallyParserGUI:
                 pass
 
         # Show dialog: Auto or Choose column header
-        dialog = ModeSelectionDialog(self.root, self.current_file, self.status_label)
-        self.root.wait_window(dialog.dialog)
+        
+        # START MANUAL WORKFLOW
+        self.status_label.config(text="Starting manual selection...")
+        self.root.update()
+        
+        # Run manual mode directly
+        result_tuple = self._run_manual_mode(input_path)
+        
+        column_mapping = None
+        cleaned_file = None
+        
+        if result_tuple:
+             mode, cleaned_file, column_mapping = result_tuple
+        else:
+            self.status_label.config(text="Manual selection cancelled")
+            return
 
         # Check result
-        if dialog.result:
-            mode, cleaned_file = dialog.result
-
-            if cleaned_file:
-                self.cleaned_file = cleaned_file
+        if cleaned_file:
+            # Proceed with processing...
+            self.cleaned_file = cleaned_file
                 
-                # Step 1: Clean file is ready
-                self.status_label.config(text=f"Cleaned file ready: {os.path.basename(cleaned_file)}")
-                self.root.update()
-                
-                # Step 2: Automatically parse and generate output
-                try:
-                    # Ask for output location
-                    output_file = filedialog.asksaveasfilename(
-                        title="Save TLY Output",
-                        defaultextension=".xlsx",
-                        filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-                        initialfile=Path(self.current_file).stem + "_output.xlsx"
-                    )
+            # Step 1: Clean file is ready
+            self.status_label.config(text=f"Cleaned file ready: {os.path.basename(cleaned_file)}")
+            self.root.update()
+            
+            # Step 2: Automatically parse and generate output
+            try:
+                # Ask for output location
+                output_file = filedialog.asksaveasfilename(
+                    title="Save TLY Output",
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                    initialfile=Path(self.current_file).stem + "_output.xlsx"
+                )
 
-                    if not output_file:
-                        # User cancelled - just enable the button for manual generation
-                        self.generate_button.config(state=tk.NORMAL)
-                        self.status_label.config(text=f"Cleaned file ready: {os.path.basename(cleaned_file)}")
-                        messagebox.showinfo(
-                            "Success",
-                            f"Clean tally generated:\n{os.path.basename(cleaned_file)}\n\nYou can generate TLY output manually using button 3."
-                        )
-                        return
-
-                    # Parse data
-                    self.status_label.config(text="Parsing data...")
-                    self.root.update()
-
-                    data = parse_tally_file(self.cleaned_file)
-
-                    if not data:
-                        messagebox.showwarning("Warning", "No data extracted from file")
-                        self.generate_button.config(state=tk.NORMAL)
-                        return
-
-                    # Generate output
-                    self.status_label.config(text="Generating output file...")
-                    self.root.update()
-
-                    generate_excel(data, output_file)
-
-                    # Success
+                if not output_file:
+                    # User cancelled - just enable the button for manual generation
                     self.generate_button.config(state=tk.NORMAL)
-                    self.status_label.config(text=f"Generated: {os.path.basename(output_file)}")
-                    
-                    # Open file in Excel
-                    self._open_file_in_excel(output_file)
-                    
+                    self.status_label.config(text=f"Cleaned file ready: {os.path.basename(cleaned_file)}")
                     messagebox.showinfo(
                         "Success",
-                        f"Clean tally and TLY output generated successfully!\n\n"
-                        f"Cleaned file: {os.path.basename(cleaned_file)}\n"
-                        f"Output file: {os.path.basename(output_file)}\n"
-                        f"Rows processed: {len(data)}\n\n"
-                        f"File opened in Excel."
+                        f"Clean tally generated:\n{os.path.basename(cleaned_file)}\n\nYou can generate TLY output manually using button 3."
                     )
+                    return
 
-                except Exception as e:
-                    error_msg = str(e)
-                    # Check if it's a header detection error
-                    if "Could not find header row" in error_msg or "required columns" in error_msg:
-                        detailed_msg = (
-                            f"Could not automatically find table headers.\n\n"
-                            f"Possible reasons:\n"
-                            f"• Headers are not in the first 30 rows\n"
-                            f"• Column names differ from expected\n"
-                            f"• Table structure is non-standard\n\n"
-                            f"Recommendation: Use 'Choose Column Header' mode\n"
-                            f"for manual selection of column headers."
-                        )
-                        messagebox.showerror("Header Detection Error", detailed_msg)
-                    else:
-                        messagebox.showerror("Error", f"Failed to generate output:\n{error_msg}")
-                    self.status_label.config(text="Error occurred")
+                # Parse data
+                self.status_label.config(text="Parsing data...")
+                self.root.update()
+
+                if column_mapping:
+                    data = parse_tally_file(self.cleaned_file, column_mapping=column_mapping, parent_window=self.root)
+                else:
+                    data = parse_tally_file(self.cleaned_file, parent_window=self.root)
+
+                if not data:
+                    messagebox.showwarning("Warning", "No data extracted from file")
                     self.generate_button.config(state=tk.NORMAL)
+                    return
+
+                # Generate output
+                self.status_label.config(text="Generating output file...")
+                self.root.update()
+
+                generate_excel(data, output_file)
+
+                # Success
+                self.generate_button.config(state=tk.NORMAL)
+                self.status_label.config(text=f"Generated: {os.path.basename(output_file)}")
+                
+                # Open file in Excel
+                self._open_file_in_excel(output_file)
+                
+                messagebox.showinfo(
+                    "Success",
+                    f"Clean tally and TLY output generated successfully!\n\n"
+                    f"Cleaned file: {os.path.basename(cleaned_file)}\n"
+                    f"Output file: {os.path.basename(output_file)}\n"
+                    f"Rows processed: {len(data)}\n\n"
+                    f"File opened in Excel."
+                )
+
+            except Exception as e:
+                error_msg = str(e)
+                # Check if it's a header detection error
+                if "Could not find header row" in error_msg or "required columns" in error_msg:
+                    detailed_msg = (
+                        f"Could not automatically find table headers.\n\n"
+                        f"Possible reasons:\n"
+                        f"• Headers are not in the first 30 rows\n"
+                        f"• Column names differ from expected\n"
+                        f"• Table structure is non-standard\n\n"
+                        f"Recommendation: Use 'Choose Column Header' mode\n"
+                        f"for manual selection of column headers."
+                    )
+                    messagebox.showerror("Header Detection Error", detailed_msg)
+                else:
+                    messagebox.showerror("Error", f"Failed to generate output:\n{error_msg}")
+                self.status_label.config(text="Error occurred")
+                self.generate_button.config(state=tk.NORMAL)
 
     def auto_process(self):
         """Auto process: Generate cleaned file, output.xlsx, and TLY file automatically"""
@@ -472,7 +616,7 @@ class TallyParserGUI:
             cleaned_file = str(cleaned_file_path)
             
             try:
-                clean_excel(str(input_path), cleaned_file)
+                clean_excel(str(input_path), cleaned_file, parent_window=self.root)
                 
                 # Verify that cleaned file was created
                 if not Path(cleaned_file).exists():
@@ -495,10 +639,10 @@ class TallyParserGUI:
                     self.root.update()
                     
                     try:
-                        clean_excel(str(temp_calculated), cleaned_file)
+                        clean_excel(str(temp_calculated), cleaned_file, parent_window=self.root)
                     except Exception as clean_error:
                         from utils.clean_excel import clean_excel_pandas
-                        clean_excel_pandas(str(temp_calculated), cleaned_file)
+                        clean_excel_pandas(str(temp_calculated), cleaned_file, parent_window=self.root)
                     
                     if not Path(cleaned_file).exists():
                         raise FileNotFoundError(f"Cleaned file was not created: {cleaned_file}")
@@ -516,7 +660,7 @@ class TallyParserGUI:
             self.status_label.config(text="Parsing data...")
             self.root.update()
 
-            data = parse_tally_file(cleaned_file)
+            data = parse_tally_file(cleaned_file, parent_window=self.root)
 
             if not data:
                 messagebox.showwarning("Warning", "No data extracted from file")
@@ -536,7 +680,10 @@ class TallyParserGUI:
 
             wb = None
             try:
-                wb = load_workbook(output_file, data_only=True)
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    wb = load_workbook(output_file, data_only=True)
                 ws = wb.active
 
                 # Find column indices for "Item #" and "Depth"
@@ -600,6 +747,24 @@ class TallyParserGUI:
             # Success - open files
             self.status_label.config(text=f"Success! Generated output and TLY files")
             self.root.update()
+
+            # Remove intermediate cleaned file
+            if hasattr(self, 'cleaned_file') and self.cleaned_file:
+                try:
+                    cleaned_path = Path(self.cleaned_file)
+                    if cleaned_path.exists():
+                        cleaned_path.unlink()
+                except Exception as e:
+                    print(f"Could not delete cleaned file: {e}")
+
+            # Remove converted file (from .xls)
+            if hasattr(self, 'converted_file') and self.converted_file:
+                try:
+                    converted_path = Path(self.converted_file)
+                    if converted_path.exists():
+                        converted_path.unlink()
+                except Exception as e:
+                    print(f"Could not delete converted file: {e}")
 
             # Open Excel with output file
             self._open_file_in_excel(output_file)
@@ -750,7 +915,7 @@ class TallyParserGUI:
         """Show readme window with instructions"""
         # Create readme window
         readme_window = tk.Toplevel(self.root)
-        readme_window.title("Help - Tally Parser")
+        readme_window.title("Help - Tally Converter")
         readme_window.geometry("750x650")
         readme_window.transient(self.root)
         readme_window.resizable(True, True)
@@ -768,7 +933,7 @@ class TallyParserGUI:
         # Title
         title_label = ttk.Label(
             main_frame,
-            text="Tally Parser User Guide",
+            text="Tally Converter User Guide",
             font=('Arial', 14, 'bold')
         )
         title_label.pack(pady=(0, 15))
@@ -798,143 +963,60 @@ class TallyParserGUI:
         # Readme content
         readme_text = """TALLY PARSER USER GUIDE
 
+1. QUICK START
 
-1. OPENING A FILE
-
-   • Click the "1. Open Tally File" button
-   • Select an Excel file (.xls or .xlsx) with well completion data
-   • The program will automatically detect the file format
-   • If the file is in the old .xls format, it will be automatically 
-     converted to .xlsx
-
-   Note: The file must contain sheets with names containing "Tally" 
-   (but not "Deck Tally").
-
-
-2. GENERATING CLEAN TALLY
-
-   Click the "2. Generate Clean Tally" button. A mode selection dialog 
-   will appear:
-
-   AUTOMATIC MODE (Auto)
+   • Click "1. Open Tally File" and select your Excel file.
+   • Click "Auto (Output + TLY)" for automatic processing.
+   • If automatic processing fails, try "2. Generate Tally Manually".
    
-   • The program will automatically detect table headers
-   • Will find columns: Depth, Length, Item #, Comments
-   • Will perform cleaning and generate output file
-   • The output file will automatically open in Excel
+   That's it!
+
+2. IF AUTOMATIC PROCESSING FAILS
+
+   If "Auto" mode fails or cannot find headers:
    
-   Use this mode if the file structure is standard
+   • Click "2. Generate Tally Manually".
+   • A window will appear where you can select the columns manually:
+     1. Click on the ROW that contains the headers (Depth, Length, etc.).
+     2. Click on the COLUMN for "Depth".
+     3. Click on the COLUMN for "Length".
+     4. Click on the COLUMN for "Item Number".
+     5. Click on the COLUMN for "Comments".
+   • Once finished, the program will process the file using your selection.
 
-   MANUAL MODE (Choose Column Header)
-   
-   Step 1: Select Header Row
-   • The program will show a table with data
-   • Will automatically detect the header row
-   • Click on the row with headers (Item, Depth, Length...)
-   • Click "Confirm header row"
+3. BUTTONS EXPLAINED
 
-   Step 2: Select Depth Column
-   • Click on the column header with depth
-   • The column will be highlighted
-   • Click "Confirm depth column"
+   [1. Open Tally File]
+   Opens a dialog to select your Excel file (.xls or .xlsx).
+   Old .xls files are automatically converted to .xlsx.
 
-   Step 3: Select Effective Length Column
-   • Click on the column header with length
-   • Click "Confirm length column"
+   [2. Generate Tally Manually]
+   Manual processing mode (or retry mode).
+   • Allows you to manually select the header row and required columns.
+   • Useful if the "Auto" button fails to detect the table structure.
+   • Creates two files: 
+     - "_output.xlsx" (Clean Excel table)
+     - ".tly" (Text file for Tally)
 
-   Step 4: Select Item Number Column
-   • Click on the column header with item number
-   • Click "Confirm item number column"
+   [3. Generate TLY]
+   Useful if you already have a clean "output.xlsx" file and just want to 
+   regenerate the .tly file without parsing everything again.
 
-   Step 5: Select Comments Column
-   • Click on the column header with comments
-   • Click "Confirm comments column"
+   [Auto (Output + TLY)]
+   The recommended first step. Automatically attempts to:
+   1. Clean the file (remove images, fix formulas).
+   2. Detect headers and data columns.
+   3. Generate both Output and TLY files.
 
-   After selecting all columns, processing will begin
+   [Readme]
+   Shows this help window.
 
-   Use this mode if automatic detection doesn't work correctly
+4. TROUBLESHOOTING
 
-   Result:
-   • Creates [filename]_cleaned.xlsx file (cleaned file)
-   • Creates [filename]_output.xlsx file (output file)
-   • The output file automatically opens in Excel
-
-
-3. GENERATING TLY FILE
-
-   • Click the "3. Generate TLY" button
-   • Select a previously created output .xlsx file
-   • The program will extract "Depth" and "Item #" columns
-   • Will create a .tly text file in the format:
-     [Run Number]    [Depth of Top of Joint]
-   • The file will automatically open in Notepad
-
-   Note: This function works independently and can be used for any 
-   output .xlsx file, even if it was created earlier.
-
-
-4. AUTO BUTTON (Output + TLY)
-
-   The "Auto (Output + TLY)" button performs all processing steps 
-   automatically in one operation:
-
-   • Automatically generates cleaned file using Auto mode
-   • Automatically parses data and generates output .xlsx file
-   • Automatically generates .tly file from the output
-   • Opens both files (Excel and Notepad) when complete
-
-   This is the fastest way to process a file if you need both the 
-   output Excel file and the TLY file. All numeric values are 
-   automatically rounded to 2 decimal places.
-
-   Use this button when:
-   • You want to process a file quickly without manual steps
-   • The file structure is standard (Auto mode will work)
-   • You need both output.xlsx and .tly files
-
-   If Auto mode fails to detect headers, use button 2 with 
-   "Choose Column Header" mode instead.
-
-
-IMPORTANT NOTES
-
-   • Before generation, existing _cleaned.xlsx and _output.xlsx files 
-     are automatically deleted
-   
-   • Files must contain sheets with names including "Tally"
-     (sheets named "Deck Tally" are ignored)
-   
-   • If a file is in "Page Layout" view, it will be automatically 
-     switched to normal view
-   
-   • To work with .xls files, the xlrd package is required:
-     pip install xlrd
-
-
-STATUS BAR
-
-   At the bottom of the window, the current program status is displayed:
-   • "Ready" - program is ready to work
-   • "Loaded: [filename]" - file is loaded
-   • "Cleaned file ready: [filename]" - file is cleaned
-   • "Processing..." - processing in progress
-   • Error messages when they occur
-
-
-WORKFLOW
-
-   Option 1 - Step by step:
-   1. Open a file (button 1)
-   2. Generate Clean Tally (button 2) - select mode (Auto/Manual)
-   3. If needed, generate TLY file (button 3)
-
-   Option 2 - Automatic (recommended):
-   1. Open a file (button 1)
-   2. Click "Auto (Output + TLY)" button
-   3. Wait for processing to complete
-
-   All files are saved in the same folder as the source file.
-   All numeric values are rounded to 2 decimal places.
+   • "Macros" / "Formulas" errors: The program tries to fix these automatically 
+     by opening Excel in the background. If this fails, try opening the file 
+     in Excel yourself, saving it, and trying again.
+   • "Header not found": Use "2. Generate Tally Manually".
 """
         
         text_widget.insert(tk.END, readme_text)
@@ -949,265 +1031,123 @@ WORKFLOW
         close_button.pack(pady=(10, 0))
 
 
-class ModeSelectionDialog:
-    """Dialog to choose Auto or Manual column selection mode"""
 
-    def __init__(self, parent, file_path, status_label=None):
-        self.file_path = file_path
-        self.result = None
-        self.status_label = status_label  # Reference to parent's status label
 
-        # Create dialog
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Select Mode")
-        self.dialog.geometry("400x200")
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
 
-        # Center dialog
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (400 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (200 // 2)
-        self.dialog.geometry(f"400x200+{x}+{y}")
+def _try_activate_existing_instance():
+    """
+    On Windows: if another instance is already running and responding, bring its window to front and return True.
+    If the existing window is hung, ask user whether to start a new instance. Returns True to exit, False to start.
+    """
+    if platform.system() != "Windows":
+        return False
+    try:
+        ctypes = __import__("ctypes")
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
 
-        self._setup_ui()
+        target_title = "Tally Converter"
+        found = [None]
 
-    def _setup_ui(self):
-        """Setup dialog UI"""
-        main_frame = ttk.Frame(self.dialog, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        def enum_callback(hwnd, _):
+            length = user32.GetWindowTextLengthW(hwnd) + 1
+            if length <= 1:
+                return True
+            buf = ctypes.create_unicode_buffer(length)
+            user32.GetWindowTextW(hwnd, buf, length)
+            if buf.value.strip() == target_title:
+                found[0] = hwnd
+                return False  # stop enumeration
+            return True
 
-        # Title
-        title_label = ttk.Label(
-            main_frame,
-            text="Choose Column Header Detection Mode",
-            font=('Arial', 11, 'bold')
-        )
-        title_label.pack(pady=(0, 20))
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
+        if not found[0]:
+            return False  # no existing window, start normally
 
-        # Button frame
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(expand=True)
+        hwnd = found[0]
+        # If existing window is hung, let user start a new instance
+        if user32.IsHungAppWindow(hwnd):
+            # MB_YESNO=4, MB_ICONQUESTION=0x20, IDYES=6
+            r = user32.MessageBoxW(
+                None,
+                "The previous instance is not responding.\nStart a new instance?",
+                "Tally Converter",
+                4 | 0x20,
+            )
+            if r == 6:  # IDYES
+                return False  # start new instance
+            return True  # user chose No, exit
 
-        # Auto button
-        auto_button = ttk.Button(
-            button_frame,
-            text="Auto",
-            command=self.use_auto_mode,
-            width=15
-        )
-        auto_button.pack(side=tk.LEFT, padx=10)
-
-        # Auto description
-        auto_desc = ttk.Label(
-            button_frame,
-            text="Automatic detection",
-            foreground="gray"
-        )
-        auto_desc.pack(side=tk.LEFT, padx=5)
-
-        # Separator
-        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=20)
-
-        # Manual button frame
-        manual_frame = ttk.Frame(main_frame)
-        manual_frame.pack()
-
-        # Choose button
-        choose_button = ttk.Button(
-            manual_frame,
-            text="Choose Column Header",
-            command=self.use_manual_mode,
-            width=20
-        )
-        choose_button.pack(side=tk.LEFT, padx=10)
-
-        # Manual description
-        manual_desc = ttk.Label(
-            manual_frame,
-            text="Manual selection",
-            foreground="gray"
-        )
-        manual_desc.pack(side=tk.LEFT, padx=5)
-
-    def use_auto_mode(self):
-        """Use automatic header detection"""
-        try:
-            input_path = Path(self.file_path)
-            
-            # If file is .xls, convert to .xlsx first
-            if input_path.suffix.lower() == '.xls':
-                try:
-                    from utils.file_converter import convert_xls_to_xlsx
-
-                    # Convert using utility function
-                    xlsx_file = convert_xls_to_xlsx(self.file_path)
-
-                    # Use converted file for cleaning
-                    input_path = xlsx_file
-
-                except ImportError as e:
-                    messagebox.showerror(
-                        "Missing Package",
-                        f"xlrd package is required to convert .xls files.\n\n"
-                        f"Please install it:\npip install xlrd\n\n"
-                        f"Error: {str(e)}"
-                    )
-                    self.result = None
-                    return
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to convert .xls to .xlsx:\n{str(e)}")
-                    self.result = None
-                    return
-            
-            # Use existing clean_excel function
-            output_path = input_path.parent / f"{input_path.stem}_cleaned.xlsx"
-
-            # Clean the file
-            try:
-                clean_excel(str(input_path), str(output_path))
-                
-                # Verify that cleaned file was created
-                if not output_path.exists():
-                    raise FileNotFoundError(f"Cleaned file was not created: {output_path}")
-                
-                self.result = ('auto', str(output_path))
-                self.dialog.destroy()
-            except Exception as e:
-                # If cleaning failed, try fallback: calculate formulas in Excel and retry
-                try:
-                    # Ask user if they want to try fallback method
-                    response = messagebox.askyesno(
-                        "Error",
-                        "Can't parse Excel book, try to fix it in Excel?"
-                    )
-                    
-                    if response:
-                        # Create temporary file for Excel calculation
-                        temp_calculated = input_path.parent / f"{input_path.stem}_calculated_temp.xlsx"
-                        
-                        # Calculate formulas using Excel COM
-                        try:
-                            from utils.calculate_formulas import calculate_formulas
-                            
-                            # Show progress message
-                            if self.status_label:
-                                self.status_label.config(text="Opening file in Excel...")
-                            if hasattr(self, 'dialog') and self.dialog.winfo_exists():
-                                self.dialog.update()
-                            
-                            # Calculate formulas - this will open Excel
-                            calculate_formulas(str(input_path), str(temp_calculated))
-                            
-                            # Verify that calculated file was created
-                            if not temp_calculated.exists():
-                                raise FileNotFoundError(f"Calculated file was not created: {temp_calculated}")
-                            
-                            if self.status_label:
-                                self.status_label.config(text="Processing calculated file...")
-                            if hasattr(self, 'dialog') and self.dialog.winfo_exists():
-                                self.dialog.update()
-                            
-                            # Try cleaning again with calculated file
-                            # If clean_excel fails, try using pandas fallback
-                            try:
-                                clean_excel(str(temp_calculated), str(output_path))
-                            except Exception as clean_error:
-                                # If clean_excel fails, try pandas fallback directly
-                                from utils.clean_excel import clean_excel_pandas
-                                clean_excel_pandas(str(temp_calculated), str(output_path))
-                            
-                            # Verify that cleaned file was created
-                            if not output_path.exists():
-                                raise FileNotFoundError(f"Cleaned file was not created: {output_path}")
-                            
-                            # Clean up temporary file
-                            if temp_calculated.exists():
-                                try:
-                                    temp_calculated.unlink()
-                                except Exception:
-                                    pass
-                            
-                            self.result = ('auto', str(output_path))
-                            self.dialog.destroy()
-                        except ImportError as e_import:
-                            messagebox.showerror(
-                                "Missing Package",
-                                f"Required package not found:\n{str(e_import)}\n\n"
-                                "Please install pywin32:\npip install pywin32"
-                            )
-                            self.result = None
-                            return
-                        except Exception as e2:
-                            # Clean up temporary file if it exists
-                            if 'temp_calculated' in locals() and temp_calculated.exists():
-                                try:
-                                    temp_calculated.unlink()
-                                except Exception:
-                                    pass
-                            
-                            # Show detailed error
-                            error_details = str(e2)
-                            import traceback
-                            traceback.print_exc()
-                            
-                            messagebox.showerror(
-                                "Fallback Error",
-                                f"Fallback method failed:\n{error_details}\n\n"
-                                "Please try using manual column selection mode."
-                            )
-                            self.result = None
-                            return
-                    else:
-                        self.result = None
-                        return
-                except Exception as e_fallback:
-                    # If fallback also failed, show error
-                    messagebox.showerror(
-                        "Error",
-                        f"Failed to clean file:\n{str(e)}\n\n"
-                        f"Fallback method also failed:\n{str(e_fallback)}\n\n"
-                        "Please try using manual column selection mode."
-                    )
-                    self.result = None
-                    return
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Auto mode failed:\n{str(e)}")
-            self.result = None
-
-    def use_manual_mode(self):
-        """Use manual column header selection"""
-        try:
-            # Save reference to parent before destroying dialog
-            parent = self.dialog.master
-            
-            # Close this dialog
-            self.dialog.destroy()
-
-            # Open manual selection dialog
-            from manual_column_selector import ManualColumnSelector
-
-            selector = ManualColumnSelector(parent, self.file_path)
-            parent.wait_window(selector.dialog)
-
-            if selector.result:
-                # Manual selection completed - cleaned file is ready
-                mode, cleaned_file = selector.result
-                self.result = (mode, cleaned_file)
-            else:
-                self.result = None
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Manual mode failed:\n{str(e)}")
-            self.result = None
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+        return True  # activated existing window, exit
+    except Exception:
+        return False
 
 
 def main():
     """Main entry point"""
-    root = tk.Tk()
-    app = TallyParserGUI(root)
-    root.mainloop()
+    def log(msg):
+        print(msg, flush=True)
+
+    try:
+        if getattr(sys, "frozen", False):
+            log("Tally Converter starting...")
+        if _try_activate_existing_instance():
+            if getattr(sys, "frozen", False):
+                log("Another instance is running. Exiting.")
+            return
+        if getattr(sys, "frozen", False):
+            log("Creating window...")
+        root = tk.Tk()
+        # Show "Loading..." immediately on slow PCs (process grows 4→9 MB before main window)
+        root.withdraw()
+        splash = tk.Toplevel(root)
+        splash.title("Tally Converter")
+        splash.geometry("340x110")
+        splash.resizable(False, False)
+        ttk.Label(splash, text="Loading...", font=("Segoe UI", 11)).pack(pady=(20, 2))
+        ttk.Label(splash, text="First run may take 1–2 min.", font=("Segoe UI", 9), foreground="gray").pack(pady=(0, 20))
+        splash.update_idletasks()
+        splash.update()
+        app = TallyConverterGUI(root)
+        try:
+            splash.destroy()
+        except Exception:
+            pass
+        root.deiconify()
+        # Close bootloader splash (shown before Python started) so only main window remains
+        if getattr(sys, "frozen", False):
+            try:
+                import pyi_splash
+                pyi_splash.close()
+            except Exception:
+                pass
+        if getattr(sys, "frozen", False):
+            log("Window created. Starting main loop (close window to exit).")
+        # When exe: force window visible once more before event loop (helps on some PCs)
+        if getattr(sys, "frozen", False):
+            try:
+                root.update_idletasks()
+                root.update()
+                root.deiconify()
+                root.lift()
+                root.attributes("-topmost", True)
+                root.update()
+                root.attributes("-topmost", False)
+                root.focus_force()
+            except Exception:
+                pass
+        root.mainloop()
+        if getattr(sys, "frozen", False):
+            log("Exiting.")
+    except Exception as e:
+        log(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        if getattr(sys, "frozen", False):
+            input("Press Enter to close...")
 
 
 if __name__ == "__main__":
